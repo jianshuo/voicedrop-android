@@ -33,7 +33,9 @@ public final class BookWritingVisualContractTest {
         assertTrue(page.contains("submittedTitle.setGravity(Gravity.CENTER)"));
         assertTrue(page.contains("WechatShareLoadingDialog.show(this, \"提交中...\")"));
         assertTrue(page.indexOf("hideSubmitLoading();\n        sending = false") > 0);
-        assertTrue(page.contains("if (loadedBalance != null && loadedBalance < PRICE)"));
+        // 价目不再是编译期常量：同一趟 io 里先取当天的价，再拿它判断要不要拉邀请链接。
+        assertTrue(page.contains("if (loadedBalance != null && loadedBalance < loadedPrice)"));
+        assertTrue(page.contains("new PriceStore(this, new HttpClient()).refreshIfNeeded()"));
         assertTrue(page.contains("format(gap) + \" 算力，两条来路：\""));
         assertTrue(page.indexOf(".balance().suanli") < page.indexOf("new ReferralManager(this).inviteLink()"));
     }

@@ -6,7 +6,8 @@ import java.util.Locale;
 
 /** User-visible result mapping for POST lab.jianshuo.dev/api/book. */
 public final class BookWritingResult {
-    public static final double DEFAULT_COST_SUANLI = 320;
+    /** 402 里没带 need_suanli 时的兜底数字（正常情况下服务端总会带）。 */
+    public static final double DEFAULT_COST_SUANLI = Prices.FALLBACK_BOOK;
 
     public final int code;
     public final boolean accepted;

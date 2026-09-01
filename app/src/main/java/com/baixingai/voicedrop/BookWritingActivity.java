@@ -28,7 +28,9 @@ import androidx.core.view.WindowInsetsCompat;
 
 import com.baixingai.voicedrop.core.BookWritingResult;
 import com.baixingai.voicedrop.core.BookWritingSeed;
+import com.baixingai.voicedrop.core.Prices;
 import com.baixingai.voicedrop.data.AuthStore;
+import com.baixingai.voicedrop.data.PriceStore;
 import com.baixingai.voicedrop.data.ReferralManager;
 import com.baixingai.voicedrop.data.UsageStore;
 import com.baixingai.voicedrop.net.HttpClient;
@@ -46,7 +48,9 @@ public final class BookWritingActivity extends Activity {
     static final String API = "https://lab.jianshuo.dev/api/book";
     static final int SHELF_ICON_RES_ID = R.drawable.ic_about_books_vertical;
     static final int POWER_ICON_RES_ID = R.drawable.ic_settings_bolt;
-    private static final int PRICE = 320;
+    /** 展示价：来自 PriceStore 的日缓存（服务端 /agent/usage/prices）。扣费真源在
+     *  服务端——402 会带权威的 need_suanli。拉不到就是 Prices.FALLBACK_BOOK。 */
+    private double price = Prices.FALLBACK_BOOK;
     private static final int META = 0xffa89e8e;
     private static final int SECTION = 0xffa79f93;
     private static final int AMBER = 0xffc98a2e;
@@ -123,7 +127,7 @@ public final class BookWritingActivity extends Activity {
         bottom.setOrientation(LinearLayout.VERTICAL);
         bottom.setBackground(topStrokeBackground(Theme.BG, Theme.BORDER_CHROME));
         SystemBarDefaults.applyBottomInsets(bottom, dp(18), dp(12), dp(18), dp(10));
-        submit = text("开始写书 · 320 算力", 16, 0xffffffff, Typeface.BOLD);
+        submit = text(submitLabel(), 16, 0xffffffff, Typeface.BOLD);
         submit.setGravity(Gravity.CENTER);
         submit.setOnClickListener(v -> startBook());
         bottom.addView(submit, new LinearLayout.LayoutParams(-1, dp(50)));
@@ -139,7 +143,7 @@ public final class BookWritingActivity extends Activity {
         content.removeAllViews();
         content.setGravity(Gravity.NO_GRAVITY);
         content.addView(priceHero(), matchWrap());
-        if (balance != null && balance < PRICE) content.addView(earnSection(), topMargin(dp(18)));
+        if (balance != null && balance < price) content.addView(earnSection(), topMargin(dp(18)));
         content.addView(seedSection(preservedSeed), topMargin(dp(18)));
         content.addView(pipelineSection(), topMargin(dp(18)));
         status = text("", 13, Theme.RED, Typeface.NORMAL);
@@ -164,10 +168,10 @@ public final class BookWritingActivity extends Activity {
         LinearLayout.LayoutParams powerIconParams = new LinearLayout.LayoutParams(dp(24), dp(40));
         powerIconParams.bottomMargin = dp(1);
         priceLine.addView(powerIcon, powerIconParams);
-        TextView price = text("320", 34, Theme.INK, Typeface.BOLD);
+        TextView priceText = text(format(price), 34, Theme.INK, Typeface.BOLD);
         LinearLayout.LayoutParams priceParams = new LinearLayout.LayoutParams(-2, -2);
         priceParams.leftMargin = dp(4);
-        priceLine.addView(price, priceParams);
+        priceLine.addView(priceText, priceParams);
         TextView unit = text("算力", 15, Theme.SECONDARY, Typeface.BOLD);
         LinearLayout.LayoutParams unitParams = new LinearLayout.LayoutParams(-2, -2);
         unitParams.leftMargin = dp(4);
@@ -185,7 +189,7 @@ public final class BookWritingActivity extends Activity {
             loading.setGravity(Gravity.RIGHT);
             right.addView(loading);
         } else {
-            TextView value = text(format(balance), 24, balance >= PRICE ? Theme.GREEN : Theme.RED, Typeface.BOLD);
+            TextView value = text(format(balance), 24, balance >= price ? Theme.GREEN : Theme.RED, Typeface.BOLD);
             value.setGravity(Gravity.RIGHT);
             right.addView(value);
             TextView label = text("你现在的算力", 13, META, Typeface.NORMAL);
@@ -294,7 +298,7 @@ public final class BookWritingActivity extends Activity {
         LinearLayout card = vertical();
         card.setPadding(dp(16), dp(15), dp(16), dp(16));
         card.setBackground(roundWithStroke(Theme.CARD, 8, Theme.BORDER_CHROME, 1));
-        double gap = Math.max(0, PRICE - balance);
+        double gap = Math.max(0, price - balance);
         card.addView(text("还差 " + format(gap) + " 算力，两条来路：", 14, Theme.INK, Typeface.BOLD));
         int feed = invite == null ? 0 : invite.suanliFeedAuthor;
         int invited = invite == null ? 0 : invite.suanliInviter;
@@ -350,13 +354,17 @@ public final class BookWritingActivity extends Activity {
         io.execute(() -> {
             Double loadedBalance = null;
             ReferralManager.InviteLink link = null;
+            // 价目：过期一天才真的发请求，其余时候是纯本地读取。免鉴权，没登录也拿得到。
+            double loadedPrice = new PriceStore(this, new HttpClient()).refreshIfNeeded();
             try { loadedBalance = new UsageStore(new AuthStore(this), new HttpClient()).balance().suanli; } catch (Exception ignored) {}
-            if (loadedBalance != null && loadedBalance < PRICE) {
+            if (loadedBalance != null && loadedBalance < loadedPrice) {
                 try { link = new ReferralManager(this).inviteLink(); } catch (Exception ignored) {}
             }
             Double finalBalance = loadedBalance;
             ReferralManager.InviteLink finalLink = link;
+            double finalPrice = loadedPrice;
             runOnUiThread(() -> {
+                price = finalPrice;
                 balance = finalBalance;
                 invite = finalLink;
                 String old = seed == null ? "" : seed.getText().toString();
@@ -445,10 +453,10 @@ public final class BookWritingActivity extends Activity {
     private void updateSubmitState() {
         if (submit == null) return;
         boolean enabled = seed != null && BookWritingSeed.canSubmit(seed.getText().toString(), hasSeedArticle())
-                && !sending && !submitted && (balance == null || balance >= PRICE);
+                && !sending && !submitted && (balance == null || balance >= price);
         submit.setEnabled(enabled);
-        double gap = balance == null ? 0 : Math.max(0, PRICE - balance);
-        submit.setText(sending ? "提交中…" : gap > 0 ? "算力不够 · 还差 " + format(gap) : "开始写书 · 320 算力");
+        double gap = balance == null ? 0 : Math.max(0, price - balance);
+        submit.setText(sending ? "提交中…" : gap > 0 ? "算力不够 · 还差 " + format(gap) : submitLabel());
         submit.setTextColor(0xffffffff);
         submit.setBackground(round(enabled ? Theme.ACCENT : Theme.FAINT, 8));
         submit.setElevation(enabled ? dp(5) : 0);
@@ -514,6 +522,11 @@ public final class BookWritingActivity extends Activity {
         overridePendingTransition(R.anim.slide_in_left, R.anim.slide_out_right);
     }
     @Override protected void onDestroy() { hideSubmitLoading(); io.shutdownNow(); super.onDestroy(); }
+
+    /** 按钮上的那句话——价钱只在这里拼一次。 */
+    private String submitLabel() {
+        return "开始写书 · " + format(price) + " 算力";
+    }
 
     private String format(double value) {
         double rounded = Math.round(value * 10) / 10.0;
